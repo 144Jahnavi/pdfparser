@@ -4,8 +4,10 @@ import fitz
 import pytesseract
 import tempfile
 from flask import Flask, request, render_template
-from PIL import Image
+from PIL import Image, ImageEnhance
 from werkzeug.utils import secure_filename
+import cv2
+import numpy as np
 
 app = Flask(__name__)
 pytesseract.pytesseract.tesseract_cmd = r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
@@ -64,6 +66,23 @@ HEALTH_METRICS = {
     # Add more metrics if needed
 }
 
+def preprocess_image(image):
+    # Convert PIL Image to OpenCV format
+    img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # Apply adaptive thresholding
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                 cv2.THRESH_BINARY, 11, 2)
+    
+    # Denoise
+    denoised = cv2.fastNlMeansDenoising(thresh)
+    
+    # Convert back to PIL Image
+    return Image.fromarray(denoised)
+
 def extract_health_data(text):
     abnormal_data = []
     normal_data = []
@@ -115,19 +134,43 @@ def extract_health_data(text):
 def extract_text_from_pdf(file_path):
     text = ""
     doc = fitz.open(file_path)
+    
+    # First try to get text directly
     for page in doc:
         text += page.get_text("text")
+    
+    # If no text found, use OCR with preprocessing
     if not text.strip():
-        # OCR fallback
         for page in doc:
-            pix = page.get_pixmap()
+            # Get high resolution image
+            pix = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            text += pytesseract.image_to_string(img)
+            
+            # Preprocess the image
+            processed_img = preprocess_image(img)
+            
+            # Enhance image quality
+            enhancer = ImageEnhance.Contrast(processed_img)
+            enhanced_img = enhancer.enhance(2.0)
+            
+            # Perform OCR with custom configuration
+            custom_config = r'--oem 3 --psm 6'
+            text += pytesseract.image_to_string(enhanced_img, config=custom_config)
+    
     return extract_health_data(text)
 
 def extract_text_from_image(file_path):
+    # Open and preprocess the image
     image = Image.open(file_path)
-    text = pytesseract.image_to_string(image)
+    processed_img = preprocess_image(image)
+    
+    # Enhance image quality
+    enhancer = ImageEnhance.Contrast(processed_img)
+    enhanced_img = enhancer.enhance(2.0)
+    
+    # Perform OCR with custom configuration
+    custom_config = r'--oem 3 --psm 6'
+    text = pytesseract.image_to_string(enhanced_img, config=custom_config)
     return extract_health_data(text)
 
 @app.route("/", methods=["GET", "POST"])
