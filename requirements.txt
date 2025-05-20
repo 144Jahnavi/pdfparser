@@ -1,6 +1,8 @@
-Flask
+Flask==2.0.1
 gunicorn
-pytesseract
-PyMuPDF
-Pillow
+pytesseract==0.3.8
+PyMuPDF==1.18.14
+Pillow==8.3.1
 Werkzeug
+opencv-python==4.5.3.56
+numpy==1.21.2
